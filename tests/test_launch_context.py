@@ -444,3 +444,142 @@ async def test_async_cancellation_closes_browser(mock_launch_async, _mock_bin):
         await launch_context_async()
 
     browser.close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Sync: playwright= parameter
+# ---------------------------------------------------------------------------
+
+
+@patch("cloakbrowser.browser.ensure_binary", return_value="/fake/chrome")
+@patch("cloakbrowser.browser.launch")
+def test_sync_playwright_forwarded_to_launch(mock_launch, _mock_bin):
+    """playwright= kwarg forwarded from launch_context() to launch()."""
+    browser, context = _make_mock_browser()
+    mock_launch.return_value = browser
+
+    from cloakbrowser.browser import launch_context
+    fake_pw = MagicMock()
+    launch_context(playwright=fake_pw)
+
+    assert mock_launch.call_args[1]["playwright"] is fake_pw
+
+
+# ---------------------------------------------------------------------------
+# Async: playwright= parameter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("cloakbrowser.browser.ensure_binary", return_value="/fake/chrome")
+@patch("cloakbrowser.browser.launch_async")
+async def test_async_playwright_forwarded_to_launch_async(mock_launch_async, _mock_bin):
+    """playwright= kwarg forwarded from launch_context_async() to launch_async()."""
+    browser, context = _make_mock_async_browser()
+    mock_launch_async.return_value = browser
+
+    from cloakbrowser.browser import launch_context_async
+    fake_pw = MagicMock()
+    await launch_context_async(playwright=fake_pw)
+
+    assert mock_launch_async.call_args[1]["playwright"] is fake_pw
+
+
+@pytest.mark.asyncio
+@patch("cloakbrowser.browser.ensure_binary", return_value="/fake/chrome")
+@patch("cloakbrowser.browser.launch_async")
+async def test_async_no_playwright_forwarded_by_default(mock_launch_async, _mock_bin):
+    """Without playwright= kwarg, launch_async() receives playwright=None (default)."""
+    browser, context = _make_mock_async_browser()
+    mock_launch_async.return_value = browser
+
+    from cloakbrowser.browser import launch_context_async
+    await launch_context_async()
+
+    assert mock_launch_async.call_args[1]["playwright"] is None
+
+
+# ---------------------------------------------------------------------------
+# launch_async() — playwright= parameter (integration-style with mocks)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("cloakbrowser.browser.ensure_binary", return_value="/fake/chrome")
+@patch("cloakbrowser.browser.maybe_resolve_geoip", return_value=(None, None, None))
+async def test_launch_async_creates_own_pw_when_none(mock_geoip, _mock_bin):
+    """launch_async() creates a new async_playwright instance when playwright=None."""
+    mock_pw = AsyncMock()
+    mock_browser = AsyncMock()
+    mock_pw.chromium.launch.return_value = mock_browser
+
+    mock_start = AsyncMock(return_value=mock_pw)
+    mock_pw_manager = MagicMock()
+    mock_pw_manager.start = mock_start
+
+    mock_async_pw = MagicMock(return_value=mock_pw_manager)
+
+    fake_pw_mod = MagicMock()
+    fake_pw_mod.async_playwright = mock_async_pw
+
+    with patch.dict("sys.modules", {"playwright": MagicMock(), "playwright.async_api": fake_pw_mod}):
+        from cloakbrowser.browser import launch_async
+        result = await launch_async()
+
+    mock_pw.chromium.launch.assert_awaited_once()
+    assert result is mock_browser
+
+
+@pytest.mark.asyncio
+@patch("cloakbrowser.browser.ensure_binary", return_value="/fake/chrome")
+@patch("cloakbrowser.browser.maybe_resolve_geoip", return_value=(None, None, None))
+async def test_launch_async_reuses_provided_pw(mock_geoip, _mock_bin):
+    """launch_async() reuses a provided playwright instance and does not stop it."""
+    fake_pw = AsyncMock()
+    mock_browser = AsyncMock()
+    fake_pw.chromium.launch.return_value = mock_browser
+
+    mock_async_pw = MagicMock()
+
+    fake_pw_mod = MagicMock()
+    fake_pw_mod.async_playwright = mock_async_pw
+
+    with patch.dict("sys.modules", {"playwright": MagicMock(), "playwright.async_api": fake_pw_mod}):
+        from cloakbrowser.browser import launch_async
+        result = await launch_async(playwright=fake_pw)
+
+    # Should NOT have called async_playwright (no new instance created)
+    mock_async_pw.assert_not_called()
+    # Should have launched via the provided instance
+    fake_pw.chromium.launch.assert_awaited_once()
+    assert result is mock_browser
+
+    # Closing the browser should NOT stop the shared playwright
+    await result.close()
+    fake_pw.stop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("cloakbrowser.browser.ensure_binary", return_value="/fake/chrome")
+@patch("cloakbrowser.browser.maybe_resolve_geoip", return_value=(None, None, None))
+async def test_launch_async_stops_own_pw_on_close(mock_geoip, _mock_bin):
+    """launch_async() stops its own playwright instance when browser is closed."""
+    mock_pw = AsyncMock()
+    mock_browser = AsyncMock()
+    mock_pw.chromium.launch.return_value = mock_browser
+
+    mock_start = AsyncMock(return_value=mock_pw)
+    mock_pw_manager = MagicMock()
+    mock_pw_manager.start = mock_start
+
+    mock_async_pw = MagicMock(return_value=mock_pw_manager)
+
+    fake_pw_mod = MagicMock()
+    fake_pw_mod.async_playwright = mock_async_pw
+
+    with patch.dict("sys.modules", {"playwright": MagicMock(), "playwright.async_api": fake_pw_mod}):
+        from cloakbrowser.browser import launch_async
+        result = await launch_async()
+
+    await result.close()
+    mock_pw.stop.assert_awaited_once()

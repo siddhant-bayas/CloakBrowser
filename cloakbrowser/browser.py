@@ -164,6 +164,7 @@ def launch(
     license_key: str | None = None,
     browser_version: str | None = None,
     _suppress_maximize: bool = False,
+    playwright: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch stealth Chromium browser. Returns a Playwright Browser object.
@@ -187,6 +188,9 @@ def launch(
         humanize: Enable human-like mouse, keyboard, scroll behavior (default False).
         human_preset: Humanize preset — 'default' or 'careful' (default 'default').
         human_config: Custom humanize config mapping to override preset values.
+        playwright: An existing sync Playwright instance (from ``sync_playwright().start()``).
+            When provided, the driver process is reused instead of spawning a new one.
+            The caller is responsible for stopping the instance when done.
         **kwargs: Passed directly to playwright.chromium.launch().
 
     Returns:
@@ -202,8 +206,6 @@ def launch(
     """
     _check_removed_kwargs(kwargs)
 
-    from playwright.sync_api import sync_playwright
-
     binary_path = ensure_binary(license_key=license_key, browser_version=browser_version)
     timezone, locale, exit_ip = maybe_resolve_geoip(geoip, proxy, timezone, locale)
     proxy_kwargs, proxy_extra_args = _resolve_proxy_config(proxy, browser_version, license_key)
@@ -218,7 +220,12 @@ def launch(
     launch_env = build_launch_env(license_key, user_env=kwargs.pop("env", None))
     env_kwargs = {} if launch_env is None else {"env": launch_env}
 
-    pw = sync_playwright().start()
+    _owned_pw = playwright is None
+    if _owned_pw:
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+    else:
+        pw = playwright
     browser = pw.chromium.launch(
         executable_path=binary_path,
         headless=headless,
@@ -229,14 +236,15 @@ def launch(
         **kwargs,
     )
 
-    # Patch close() to also stop the Playwright instance
+    # Patch close() to also stop the Playwright instance (only if we own it)
     _original_close = browser.close
 
     def _close_with_cleanup() -> None:
         try:
             _original_close()
         finally:
-            pw.stop()
+            if _owned_pw:
+                pw.stop()
 
     browser.close = _close_with_cleanup
 
@@ -272,6 +280,7 @@ async def launch_async(  # noqa: C901
     license_key: str | None = None,
     browser_version: str | None = None,
     _suppress_maximize: bool = False,
+    playwright: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """Async version of launch(). Returns a Playwright Browser object.
@@ -288,6 +297,9 @@ async def launch_async(  # noqa: C901
         humanize: Enable human-like mouse, keyboard, scroll behavior (default False).
         human_preset: Humanize preset — 'default' or 'careful' (default 'default').
         human_config: Custom humanize config mapping to override preset values.
+        playwright: An existing async Playwright instance (from ``async_playwright().start()``).
+            When provided, the driver process is reused instead of spawning a new one.
+            The caller is responsible for stopping the instance when done.
         **kwargs: Passed directly to playwright.chromium.launch().
 
     Returns:
@@ -308,8 +320,6 @@ async def launch_async(  # noqa: C901
     """
     _check_removed_kwargs(kwargs)
 
-    from playwright.async_api import async_playwright
-
     binary_path = ensure_binary(license_key=license_key, browser_version=browser_version)
     timezone, locale, exit_ip = maybe_resolve_geoip(geoip, proxy, timezone, locale)
     proxy_kwargs, proxy_extra_args = _resolve_proxy_config(proxy, browser_version, license_key)
@@ -323,7 +333,12 @@ async def launch_async(  # noqa: C901
     launch_env = build_launch_env(license_key, user_env=kwargs.pop("env", None))
     env_kwargs = {} if launch_env is None else {"env": launch_env}
 
-    pw = await async_playwright().start()
+    _owned_pw = playwright is None
+    if _owned_pw:
+        from playwright.async_api import async_playwright
+        pw = await async_playwright().start()
+    else:
+        pw = playwright
     browser = await pw.chromium.launch(
         executable_path=binary_path,
         headless=headless,
@@ -334,14 +349,15 @@ async def launch_async(  # noqa: C901
         **kwargs,
     )
 
-    # Patch close() to also stop the Playwright instance
+    # Patch close() to also stop the Playwright instance (only if we own it)
     _original_close = browser.close
 
     async def _close_with_cleanup() -> None:
         try:
             await _original_close()
         finally:
-            await pw.stop()
+            if _owned_pw:
+                await pw.stop()
 
     browser.close = _close_with_cleanup
 
@@ -649,6 +665,7 @@ def launch_context(
     extension_paths: list[str] | None = None,
     license_key: str | None = None,
     browser_version: str | None = None,
+    playwright: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch stealth browser and return a BrowserContext with common options pre-set.
@@ -673,6 +690,9 @@ def launch_context(
         humanize: Enable human-like mouse, keyboard, scroll behavior (default False).
         human_preset: Humanize preset — 'default' or 'careful' (default 'default').
         human_config: Custom humanize config mapping to override preset values.
+        playwright: An existing sync Playwright instance (from ``sync_playwright().start()``).
+            When provided, the driver process is reused instead of spawning a new one.
+            The caller is responsible for stopping the instance when done.
         **kwargs: Passed to browser.new_context().
 
     Returns:
@@ -693,6 +713,7 @@ def launch_context(
     browser = launch(headless=headless, proxy=proxy, args=args, stealth_args=stealth_args,
                      timezone=timezone, locale=locale, extension_paths=extension_paths,
                      license_key=license_key, browser_version=browser_version,
+                     playwright=playwright,
                      # Caller chose a viewport geometry → don't also auto-maximize
                      # the window (mirrors the persistent-context path + JS).
                      _suppress_maximize=(viewport is not _VIEWPORT_UNSET or "no_viewport" in kwargs))
@@ -754,6 +775,7 @@ async def launch_context_async(
     extension_paths: list[str] | None = None,
     license_key: str | None = None,
     browser_version: str | None = None,
+    playwright: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """Async version of launch_context().
@@ -779,6 +801,9 @@ async def launch_context_async(
         humanize: Enable human-like mouse, keyboard, scroll behavior (default False).
         human_preset: Humanize preset — 'default' or 'careful' (default 'default').
         human_config: Custom humanize config mapping to override preset values.
+        playwright: An existing async Playwright instance (from ``async_playwright().start()``).
+            When provided, the driver process is reused instead of spawning a new one.
+            The caller is responsible for stopping the instance when done.
         **kwargs: Passed to browser.new_context() — e.g. storage_state, permissions.
 
     Returns:
@@ -817,6 +842,7 @@ async def launch_context_async(
     browser = await launch_async(headless=headless, proxy=proxy, args=args, stealth_args=stealth_args,
                                  timezone=timezone, locale=locale, extension_paths=extension_paths,
                                  license_key=license_key, browser_version=browser_version,
+                                 playwright=playwright,
                                  # Caller chose a viewport geometry → don't also auto-maximize
                                  # the window (mirrors the persistent-context path + JS).
                                  _suppress_maximize=(viewport is not _VIEWPORT_UNSET or "no_viewport" in kwargs))

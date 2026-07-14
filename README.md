@@ -404,6 +404,33 @@ async def main():
 asyncio.run(main())
 ```
 
+> **Warning — Avoid creating multiple Playwright instances**
+>
+> Each `launch_context_async()` call spawns its own Node.js driver process by
+> default. Calling it multiple times creates multiple processes, increasing
+> memory usage and CPU overhead linearly. Instead, pass a single shared
+> Playwright instance via the `playwright` parameter:
+>
+> ```python
+> import asyncio
+> from cloakbrowser import launch_context_async
+> from playwright.async_api import async_playwright
+>
+> async def main():
+>     async with async_playwright() as p:
+>         ctx1 = await launch_context_async(playwright=p)
+>         ctx2 = await launch_context_async(playwright=p)
+>         # ... use both contexts ...
+>         await ctx1.close()
+>         await ctx2.close()
+>
+> asyncio.run(main())
+> ```
+>
+> The same applies to the sync variants (`launch()`, `launch_context()`).
+> When a shared instance is passed, closing the context does **not** stop
+> the Playwright driver — the caller manages its lifecycle.
+
 ### `launch_persistent_context()`
 
 Same as `launch_context()`, but with a persistent user profile. Cookies, localStorage, and cache persist across sessions.
